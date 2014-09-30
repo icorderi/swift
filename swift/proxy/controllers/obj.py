@@ -365,6 +365,7 @@ class ObjectController(Controller):
                         conf = readconf('/etc/swift/object-server.conf')
                         conf['bind_port'] = 6090 # TODO: add option to not create socket
                         self.object_server = ObjServer(conf)
+                        self.app.logger.info('H4CK: Disk manager? %s' % self.object_server._diskfile_mgr)
 
                     self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
 
@@ -372,7 +373,7 @@ class ObjectController(Controller):
                     environ.update(headers)
                     local_req = Request(environ)
                     # fix path to include device
-                    local_req.environ['PATH_INFO'] = quote('/' + node['device'] + '/' + str(part) + local_req.path)
+                    local_req.environ['PATH_INFO'] = '/' + node['device'] + '/' + str(part) + path
                     self.app.logger.info('H4CK: path=%s' % local_req.path)
  
                     class Dummy(): pass
