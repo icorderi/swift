@@ -59,6 +59,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
+from swift.obj.server import ObjectController as ObjServer
 
 
 def copy_headers_into(from_r, to_r):
@@ -350,7 +351,7 @@ class ObjectController(Controller):
             conn.queue.task_done()
 
     def _connect_put_node(self, nodes, part, path, headers,
-                          logger_thread_locals):
+                          logger_thread_locals, req):
         """Method for a file PUT connect"""
         self.app.logger.thread_locals = logger_thread_locals
         for node in nodes:
@@ -360,12 +361,14 @@ class ObjectController(Controller):
                 if node['ip'] in ['localhost', '127.0.0.1']:
                     # lazy initialize object-server
                     if not self.object_server:
-                        # TODO: instantiate object-server
-                        pass
+                        conf = {}
+                        self.object_server = ObjServer(conf)
 
                     self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
+
                     # TODO: build req object
-                    req = None
+                    original_env = req.environ.copy()
+                    local_req = Request(original_env)
                     conn = object()
                     conn.queue = Queue(self.app.put_queue_depth)
                     # hack in so that the object servers reads the deata directly from the queue
@@ -373,7 +376,7 @@ class ObjectController(Controller):
                     reader.read = lambda s: conn.queue.get()
                     req.environ['wsgi.input'] = reader
                     # this is where the response whill be looked up by _get_responses
-                    conn.resp = self.object_server.PUT(req)
+                    conn.resp = self.object_server.PUT(local_req)
                     # this is None so that _send_file is Noop'ed
                     conn.send = None
                     conn.node = node
@@ -710,7 +713,7 @@ class ObjectController(Controller):
             # we probably need to pass the full req object for the local call case
             pile.spawn(self._connect_put_node, node_iter, partition,
                        req.swift_entity_path, nheaders,
-                       self.app.logger.thread_locals)
+                       self.app.logger.thread_locals, req)
 
         # Creating connections
         # ---------------------
