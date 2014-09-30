@@ -61,7 +61,7 @@ from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
     HTTPClientDisconnect
 from swift.common.request_helpers import is_sys_or_user_meta, is_sys_meta, \
     remove_items, copy_header_subset
-from swift.obj.server import ObjectController as ObjServer
+from kinetic_swift.obj.server import ObjectController as ObjServer
 
 
 def copy_headers_into(from_r, to_r):
@@ -364,6 +364,7 @@ class ObjectController(Controller):
                     if not self.object_server:
                         conf = readconf('/etc/swift/object-server.conf')
                         conf['bind_port'] = 6090 # TODO: add option to not create socket
+                        self.app.logger.info('H4CK: Config= %s' % conf)
                         self.object_server = ObjServer(conf)
                         self.app.logger.info('H4CK: Disk manager? %s' % self.object_server._diskfile_mgr)
 
