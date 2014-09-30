@@ -28,6 +28,7 @@ import itertools
 import mimetypes
 import time
 import math
+import copy
 from swift import gettext_ as _
 from urllib import unquote, quote
 
@@ -371,6 +372,7 @@ class ObjectController(Controller):
                     local_req = Request(environ)
                     # fix path to include device
                     local_req.environ['PATH_INFO'] = quote('/' + node['device'] + '/' + str(part) + local_req.path)
+                    
                     class Dummy(): pass
                     conn = Dummy()
                     conn.queue = Queue(self.app.put_queue_depth)
