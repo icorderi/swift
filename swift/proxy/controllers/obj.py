@@ -37,6 +37,7 @@ from eventlet.queue import Queue
 from eventlet.timeout import Timeout
 
 from swift.common.utils import (
+    readconf,
     clean_content_type, config_true_value, ContextPool, csv_append,
     GreenAsyncPile, GreenthreadSafeIterator, json, Timestamp,
     normalize_delete_at_timestamp, public, quorum_size, get_expirer_container)
@@ -361,7 +362,8 @@ class ObjectController(Controller):
                 if node['ip'] in ['localhost', '127.0.0.1']:
                     # lazy initialize object-server
                     if not self.object_server:
-                        conf = {}
+                        conf = readconf('/etc/swift/object-server.conf')
+                        conf['bind_port'] = 6090 # TODO: add option to not create socket
                         self.object_server = ObjServer(conf)
 
                     self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
@@ -371,11 +373,11 @@ class ObjectController(Controller):
                     local_req = Request(environ)
                     # fix path to include device
                     local_req.environ['PATH_INFO'] = quote('/' + node['device'] + '/' + str(part) + local_req.path)
-                    self.app.logger.info('H4CK: path=' % local_req.path)
+                    self.app.logger.info('H4CK: path=%s' % local_req.path)
  
                     class Dummy(): pass
                     conn = Dummy()
-                    conn.queue = Queued(self.app.put_queue_depth)
+                    conn.queue = Queue(self.app.put_queue_depth)
                     # hack in so that the object servers reads the deata directly from the queue
                     reader = Dummy()
                     def read(lenth):

@@ -403,6 +403,7 @@ class ObjectController(object):
                 device, partition, account, container, obj,
                 policy_idx=policy_idx)
         except DiskFileDeviceUnavailable:
+            self.logger.info('H4CK: Boom! Cant file disk file')
             return HTTPInsufficientStorage(drive=device, request=request)
         try:
             orig_metadata = disk_file.read_metadata()
