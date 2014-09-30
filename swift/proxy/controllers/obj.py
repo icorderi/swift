@@ -28,6 +28,7 @@ import itertools
 import mimetypes
 import time
 import math
+import copy
 from swift import gettext_ as _
 from urllib import unquote, quote
 
@@ -367,8 +368,7 @@ class ObjectController(Controller):
                     self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly. Req=%s' % req)
                     self.app.logger.info('H4CK:     Headers=%s' % headers)
 
-                    original_env = req.environ.copy()
-                    local_req = Request(original_env)
+                    local_req = copy.deepcopy(req)
                     class Dummy(): pass
                     conn = Dummy()
                     conn.queue = Queue(self.app.put_queue_depth)
