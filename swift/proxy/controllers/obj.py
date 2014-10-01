@@ -380,7 +380,8 @@ class ObjectController(Controller):
                     class Dummy(): pass
                     conn = Dummy()
                     conn.bytes_transferred = 0
-                    conn.queue = Queue(self.app.put_queue_depth)
+                    self.app.logger.info('H4CK: Queue size=%s' % self.app.put_queue_depth)
+                    conn.queue = Queue(2)
                     # hack in so that the object servers reads the deata directly from the queue
                     reader = Dummy()
                     size = int(local_req.environ['Content-Length'])
@@ -388,12 +389,13 @@ class ObjectController(Controller):
                     def read(lenth):
                         if conn.bytes_transferred == size:
                             # we are done dude
-                            self.app.logger.info('H4CK: Read called, nothing left.')
+                            # self.app.logger.info('H4CK: Read called, nothing left.')
                             return ""
-                        self.app.logger.info('H4CK: reading (%s out of %s far)...' % (conn.bytes_transferred, size))
+                        # self.app.logger.info('H4CK: reading (%s out of %s far)...' % (conn.bytes_transferred, size))
                         x = conn.queue.get()
                         conn.bytes_transferred += len(x)
-                        self.app.logger.info('H4CK: Read %s out of %s bytes so far' % (conn.bytes_transferred, size))
+                        # self.app.logger.info('H4CK: Chunk_size=%s' % (len(x)))
+                        # self.app.logger.info('H4CK: Read %s out of %s bytes so far' % (conn.bytes_transferred, size))
                         conn.queue.task_done()
                         return x
 
@@ -812,7 +814,7 @@ class ObjectController(Controller):
                                     conn.queue.put('0\r\n\r\n')
                             break
                     bytes_transferred += len(chunk)
-                    self.app.logger.info('H4CK: proxy bytes transfered: %si, in conn(%s)' % (bytes_transferred, conn.bytes_transferred))
+                    # self.app.logger.info('H4CK: proxy bytes transfered: %si, in conn(%s)' % (bytes_transferred, conn.bytes_transferred))
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):
