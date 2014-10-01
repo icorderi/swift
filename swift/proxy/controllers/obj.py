@@ -364,9 +364,8 @@ class ObjectController(Controller):
                     if not self.object_server:
                         conf = readconf('/etc/swift/object-server.conf')
                         conf['bind_port'] = 6090 # TODO: add option to not create socket
-                        self.app.logger.info('H4CK: Config= %s' % conf)
+                        # self.app.logger.info('H4CK: Config= %s' % conf)
                         self.object_server = ObjServer(conf)
-                        self.app.logger.info('H4CK: Disk manager? %s' % self.object_server._diskfile_mgr)
 
                     self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
 
@@ -379,14 +378,20 @@ class ObjectController(Controller):
  
                     class Dummy(): pass
                     conn = Dummy()
+                    conn.bytes_transferred = 0
                     conn.queue = Queue(self.app.put_queue_depth)
                     # hack in so that the object servers reads the deata directly from the queue
                     reader = Dummy()
                     def read(lenth):
-                        self.app.logger.info('H4CK: reading... Queue=%s' % conn.queue)
-                        return conn.queue.get()
+                        self.app.logger.info('H4CK: reading...')
+                        x = conn.queue.get()
+                        conn.bytes_transferred += len(x)
+                        self.app.logger.info('H4CK: Read %s bytes so far' % conn.bytes_transferred)
+                        conn.queue.task_done()
+                        return x
+
                     reader.read = read
-                    req.environ['wsgi.input'] = reader
+                    local_req.environ['wsgi.input'] = reader
                     # this is where the response whill be looked up by _get_responses
                     self.app.logger.info('H4CK: Calling PUT with modified request.')
                     conn.resp = self.object_server.PUT(local_req)
@@ -732,6 +737,8 @@ class ObjectController(Controller):
                        req.swift_entity_path, nheaders,
                        self.app.logger.thread_locals, req)
 
+        self.app.logger.info('H4CK: all connect_put spawned')
+
         # Creating connections
         # ---------------------
         # this guys just have a queue where chunks get added
@@ -761,13 +768,16 @@ class ObjectController(Controller):
 
         bytes_transferred = 0
         try:
+            self.app.logger.info('H4CK: proxy about to read data from socket')
             with ContextPool(len(nodes)) as pool:
                 for conn in conns:
                     conn.failed = False
                     if not conn.queue:
                         # for the bypass case, the queue is created before the call
                         conn.queue = Queue(self.app.put_queue_depth)
+               
                     pool.spawn(self._send_file, conn, req.path)
+                self.app.logger.info('H4CK: proxy looping for reads...')
                 while True:
                     with ChunkReadTimeout(self.app.client_timeout):
                         try:
@@ -778,6 +788,7 @@ class ObjectController(Controller):
                                     conn.queue.put('0\r\n\r\n')
                             break
                     bytes_transferred += len(chunk)
+                    self.app.logger.info('H4CK: proxy bytes transfered: %si, in conn(%s)' % (bytes_transferred, conn.bytes_transferred))
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):
