@@ -32,8 +32,8 @@ import copy
 from swift import gettext_ as _
 from urllib import unquote, quote
 
-from eventlet import (GreenPile, spawn)
-from eventlet.queue import Queue
+from eventlet import (GreenPile, spawn, sleep)
+from eventlet.queue import (Queue, LightQueue)
 from eventlet.timeout import Timeout
 from eventlet.event import Event
 
@@ -86,6 +86,8 @@ def check_content_type(req):
                                       "swift_* is not a valid parameter name.")
     return None
 
+# H4CK
+object_server = None
 
 class ObjectController(Controller):
     """WSGI controller for object requests."""
@@ -97,8 +99,6 @@ class ObjectController(Controller):
         self.account_name = unquote(account_name)
         self.container_name = unquote(container_name)
         self.object_name = unquote(object_name)
-        # To be used in case of a bypass
-        self.object_server = None
 
     def _listing_iter(self, lcontainer, lprefix, env):
         for page in self._listing_pages_iter(lcontainer, lprefix, env):
@@ -362,41 +362,71 @@ class ObjectController(Controller):
                 # Bypass
                 if node['ip'] in ['localhost', '127.0.0.1']:
                     # lazy initialize object-server
-                    if not self.object_server:
+                    global object_server
+                    if not object_server:
                         conf = readconf('/etc/swift/object-server.conf')
                         conf['bind_port'] = 6090 # TODO: add option to not create socket
                         # self.app.logger.info('H4CK: Config= %s' % conf)
-                        self.object_server = ObjServer(conf)
+                        self.app.logger.info('H4CK: Object-server instantiated')
+			object_server = ObjServer(conf)
 
-                    self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
+                    # self.app.logger.info('H4CK: Bypasssing network, talking to object-server directly.')
 
                     environ = req.environ.copy()
                     environ.update(headers)
                     local_req = Request(environ)
                     # fix path to include device
                     local_req.environ['PATH_INFO'] = '/' + node['device'] + '/' + str(part) + path
-                    self.app.logger.info('H4CK: path=%s' % local_req.path)
+                    local_req.environ['Bypassed'] = True
+                    # self.app.logger.info('H4CK: path=%s' % local_req.path)
  
                     class Dummy(): pass
                     conn = Dummy()
                     conn.bytes_transferred = 0
-                    self.app.logger.info('H4CK: Queue size=%s' % self.app.put_queue_depth)
-                    conn.queue = Queue(2)
+                    # self.app.logger.info('H4CK: Queue size=%s' % self.app.put_queue_depth)
+                    
+                    class TransferQueue():
+    
+                        def __init__(self, maxsize=None):
+                            self.queue = LightQueue(maxsize)
+                            self._evt = Event()
+                            self.unfinished_tasks = True
+                            # self._data = 'x' * 64*1024
+
+                        def put(self, x): 
+                            # sleep()
+                            self.queue.put(x)
+        
+                        def get(self):
+                            # sleep()
+                            # return self._data 
+                            return self.queue.get()
+    
+                        def join(self): self._evt.wait()
+    
+                        def done(self):
+                            self.unfinished_tasks = False
+                            self._evt.send() 
+
+                        def task_done(self): pass
+
+                    conn.queue = TransferQueue(self.app.put_queue_depth)
                     # hack in so that the object servers reads the deata directly from the queue
                     reader = Dummy()
                     size = int(local_req.environ['Content-Length'])
-                    self.app.logger.info('H4CK: Faking a transfer of %s bytes' % size)
+                    # self.app.logger.info('H4CK: Faking a transfer of %s bytes' % size)
                     def read(lenth):
                         if conn.bytes_transferred == size:
                             # we are done dude
                             # self.app.logger.info('H4CK: Read called, nothing left.')
+                            conn.queue.done()
                             return ""
                         # self.app.logger.info('H4CK: reading (%s out of %s far)...' % (conn.bytes_transferred, size))
                         x = conn.queue.get()
                         conn.bytes_transferred += len(x)
                         # self.app.logger.info('H4CK: Chunk_size=%s' % (len(x)))
-                        # self.app.logger.info('H4CK: Read %s out of %s bytes so far' % (conn.bytes_transferred, size))
-                        conn.queue.task_done()
+                        # self.app.logger.info('H4CK: Read %s out of %s bytes so far (%s)' % (conn.bytes_transferred, size, node['device']))
+                        # conn.queue.task_done()
                         return x
 
                     reader.read = read
@@ -404,17 +434,17 @@ class ObjectController(Controller):
                     # this is where the response whill be looked up by _get_responses
                     evt = Event()
                     def process_request():
-                        self.app.logger.info('H4CK: Calling PUT with modified request.')
-                        conn.resp = self.object_server.PUT(local_req)
-                        self.app.logger.info('H4CK: Response received from Object-server. %s' % conn.resp)
+                        # self.app.logger.info('H4CK: Calling PUT with modified request.')
+                        conn.resp = object_server.PUT(local_req)
+                        # self.app.logger.info('H4CK: Response received from Object-server. %s' % conn.resp)
                         # make the status be just the code
                         conn.resp.use_status_int = True
-                        self.app.logger.info('H4CK:    Status: %d Reason: %s' % (conn.resp.status, conn.resp.reason))
+                        # self.app.logger.info('H4CK:    Status: %d Reason: %s' % (conn.resp.status, conn.resp.reason))
                         evt.send()
                     def get_response():
-                        self.app.logger.info('H4CK: Proxy waiting on response...')
+                        # self.app.logger.info('H4CK: Proxy waiting on response...')
                         evt.wait()
-                        self.app.logger.info('H4CK: Giving response to proxy.')
+                        # self.app.logger.info('H4CK: Giving response to proxy.')
                         return conn.resp
                     conn.resp = None
                     conn.getresponse = get_response
@@ -763,7 +793,7 @@ class ObjectController(Controller):
                        req.swift_entity_path, nheaders,
                        self.app.logger.thread_locals, req)
 
-        self.app.logger.info('H4CK: all connect_put spawned')
+        # self.app.logger.info('H4CK: all connect_put spawned')
 
         # Creating connections
         # ---------------------
@@ -794,7 +824,7 @@ class ObjectController(Controller):
 
         bytes_transferred = 0
         try:
-            self.app.logger.info('H4CK: proxy about to read data from socket')
+            # self.app.logger.info('H4CK: proxy about to read data from socket')
             with ContextPool(len(nodes)) as pool:
                 for conn in conns:
                     conn.failed = False
@@ -803,7 +833,7 @@ class ObjectController(Controller):
                         conn.queue = Queue(self.app.put_queue_depth)
                
                     pool.spawn(self._send_file, conn, req.path)
-                self.app.logger.info('H4CK: proxy looping for reads...')
+                # self.app.logger.info('H4CK: proxy looping for reads...')
                 while True:
                     with ChunkReadTimeout(self.app.client_timeout):
                         try:
@@ -814,7 +844,7 @@ class ObjectController(Controller):
                                     conn.queue.put('0\r\n\r\n')
                             break
                     bytes_transferred += len(chunk)
-                    # self.app.logger.info('H4CK: proxy bytes transfered: %si, in conn(%s)' % (bytes_transferred, conn.bytes_transferred))
+                    # self.app.logger.info('H4CK: proxy bytes transfered: %s' % (bytes_transferred))
                     if bytes_transferred > constraints.MAX_FILE_SIZE:
                         return HTTPRequestEntityTooLarge(request=req)
                     for conn in list(conns):

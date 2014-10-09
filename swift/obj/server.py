@@ -399,9 +399,9 @@ class ObjectController(object):
             return HTTPBadRequest(body=str(e), request=request,
                                   content_type='text/plain')
         try:
-            self.logger.info('H4CK: path=%s' % request.path)
-            self.logger.info('H4CK: device=%s, partition=%s, account=%s, container=%s, obj=%s, policy_idx=%s' % (
-                                device, partition, account, container, obj, policy_idx))
+            # self.logger.info('H4CK: path=%s' % request.path)
+            # self.logger.info('H4CK: device=%s, partition=%s, account=%s, container=%s, obj=%s, policy_idx=%s' % (
+            #                     device, partition, account, container, obj, policy_idx))
 
             disk_file = self.get_diskfile(
                 device, partition, account, container, obj,
@@ -430,6 +430,7 @@ class ObjectController(object):
                 headers={'X-Backend-Timestamp': orig_timestamp.internal})
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
+        skip_etag = request.environ.get('Bypassed', False)
         etag = md5()
         elapsed_time = 0
         try:
@@ -447,7 +448,7 @@ class ObjectController(object):
                         if start_time > upload_expiration:
                             self.logger.increment('PUT.timeouts')
                             return HTTPRequestTimeout(request=request)
-                        etag.update(chunk)
+                        if not skip_etag: etag.update(chunk)
                         upload_size = writer.write(chunk)
                         elapsed_time += time.time() - start_time
                 except ChunkReadTimeout:
@@ -458,10 +459,12 @@ class ObjectController(object):
                         upload_size)
                 if fsize is not None and fsize != upload_size:
                     return HTTPClientDisconnect(request=request)
-                etag = etag.hexdigest()
-                if 'etag' in request.headers and \
-                        request.headers['etag'].lower() != etag:
-                    return HTTPUnprocessableEntity(request=request)
+                if not skip_etag:
+                    etag = etag.hexdigest()
+                    if 'etag' in request.headers and \
+                            request.headers['etag'].lower() != etag:
+                        return HTTPUnprocessableEntity(request=request)
+                else: etag = ''
                 metadata = {
                     'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
